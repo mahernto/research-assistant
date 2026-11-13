@@ -1,0 +1,24 @@
+# Corpus pesado y regenerable (se reconstruye con corpus_manifest.jsonl)
+data/pdfs/
+data/texts/
+
+# Metadatos de la API de arXiv y caché de lemas (regenerables)
+data/candidates.jsonl
+data/candidates.jsonl.partial
+data/chunk_lemmas.jsonl
+
+# Versión de prueba (SMOKE_TEST)
+data_smoke/
+
+# Borrador generado por el notebook (se entrega MILESTONE_1.md)
+MILESTONE_1_draft.md
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# Secretos: nunca al repositorio
+.env
+*.key
