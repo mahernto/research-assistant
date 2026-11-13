@@ -1,14 +1,15 @@
-# Corpus pesado y regenerable (se reconstruye con corpus_manifest.jsonl)
-data/pdfs/
-data/texts/
+# Corpus pesado y regenerable (se reconstruye con corpus.jsonl)
+data/pdf/
+data/txt/
 
-# Metadatos de la API de arXiv y caché de lemas (regenerables)
+# Metadatos de la API, caché de lemas y formato anterior de los fragmentos
 data/candidates.jsonl
 data/candidates.jsonl.partial
 data/chunk_lemmas.jsonl
+data/chunks.jsonl
 
 # Versión de prueba (SMOKE_TEST)
-data_smoke/
+data_smoke/ 
 
 # Borrador generado por el notebook (se entrega MILESTONE_1.md)
 MILESTONE_1_draft.md
