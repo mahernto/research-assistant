@@ -1,16 +1,15 @@
-"""Construcción del corpus del Hito 1: arXiv -> PDFs -> texto limpio -> corpus.jsonl + data/chunks/<tema>.jsonl.
+"""Construye el corpus de arXiv y su índice de fragmentos.
 
-El notebook sólo llama a `build()` si faltan `corpus.jsonl` o los fragmentos; los dos están en el repositorio,
-así que en una ejecución normal este módulo no descarga nada. También se puede lanzar a mano:
-
+Uso desde la raíz del proyecto:
     python corpus_builder.py
 
-Pasos (cada uno se salta si su resultado ya existe en disco):
-  1. API de arXiv: candidatos por tema y mes             -> data/candidates.jsonl (checkpoint en .partial)
-  2. PDF -> texto limpio, por paper (8 en paralelo)        -> data/pdf/<tema>/<id>.pdf, data/txt/<tema>/<id>.txt
-  3. Selección de PAPERS_PER_TOPIC papers válidos por tema -> corpus.jsonl
-     (si corpus.jsonl ya existe, sólo se descargan los textos que falten de esos papers)
-  4. Fragmentación y selección de TARGET_CHUNKS fragmentos -> data/chunks/<tema>.jsonl
+Genera corpus.jsonl y data/chunks/<tema>.jsonl. Reutiliza candidatos,
+PDF y textos existentes; build() vuelve a generar los fragmentos.
+Si existe el manifiesto, conserva su selección de artículos y procesa
+los textos disponibles o descarga los que falten.
+
+El notebook evita llamar a build() cuando ya dispone del manifiesto
+y de todos los archivos de fragmentos.
 """
 import os, re, json, math, time, random, calendar, threading, unicodedata
 import xml.etree.ElementTree as ET
@@ -21,11 +20,10 @@ import numpy as np
 import requests
 from tqdm.auto import tqdm
 
-# ================================ PARÁMETROS DEL CORPUS ================================
+# Configuración del corpus
 SEED = 42
 
-# tema -> consulta a la API de arXiv. Cada paper se asigna a un único tema, el primero
-# que lo reclama; los temas más específicos van primero y los más genéricos (deep learning) al final.
+# El orden de los temas determina la prioridad de asignación de artículos compartidos.
 TOPICS = {
     'autonomous_vehicles':    '(abs:"autonomous driving" OR abs:"autonomous vehicle" OR abs:"autonomous vehicles" OR abs:"self-driving")',
     'reinforcement_learning': 'abs:"reinforcement learning" AND (cat:cs.LG OR cat:cs.AI)',
@@ -33,31 +31,28 @@ TOPICS = {
     'neural_networks':        'cat:cs.NE AND (abs:"neural network" OR abs:"neural networks")',
     'deep_learning':          'cat:cs.LG AND abs:"deep learning"',
 }
-# Nombre corto de cada tema (carpetas y archivos de fragmentos)
 TOPIC_DIRS = {'autonomous_vehicles': 'av', 'reinforcement_learning': 'rl', 'nlp': 'nlp',
               'neural_networks': 'nn', 'deep_learning': 'dl'}
 
 PAPERS_PER_TOPIC = 800
-TARGET_CHUNKS = 10_000            # nº total de fragmentos a indexar
-DATE_START, DATE_END = '2025-01', '2026-11'   # ventana fija -> corpus reproducible
-OVERSAMPLE = 1.5                  # candidatos extra por tema (duplicados entre temas, PDFs que fallan...)
-API_DELAY = 3.0                   # arXiv: como máximo 1 petición cada 3 s
-PDF_WORKERS = 8                   # descargas en paralelo desde el bucket público de arXiv
+TARGET_CHUNKS = 10_000
+DATE_START, DATE_END = '2025-01', '2026-11'  # Ventana de selección; conservar los datos para reproducir la instantánea.
+OVERSAMPLE = 1.5  # Margen para duplicados y documentos descartados.
+API_DELAY = 3.0  # Intervalo mínimo entre peticiones a arXiv, en segundos.
+PDF_WORKERS = 8
 MAX_PDF_MB = 25
-MAX_PAGES = 40                    # sólo se lee el principio de los PDFs larguísimos
-MIN_DOC_WORDS = 1500              # menos palabras suele indicar un PDF mal extraído
-MIN_GOOD_CHUNKS = 3               # un paper válido tiene al menos 3 fragmentos de texto "normal"
+MAX_PAGES = 40
+MIN_DOC_WORDS = 1500
+MIN_GOOD_CHUNKS = 3
 
-# Fragmentación
-CHUNK_WORDS = 300                 # el enunciado pide 200-400 palabras
-CHUNK_OVERLAP = 0.15              # ... y un solape del 10-20 %
-MIN_CHUNK_WORDS = 100             # el resto final del paper, si es más corto, se descarta
-MIN_ALPHA_RATIO = 0.70            # fracción mínima de "palabras" alfabéticas (filtra tablas, fórmulas, referencias)
+CHUNK_WORDS = 300
+CHUNK_OVERLAP = 0.15
+MIN_CHUNK_WORDS = 100  # Longitud mínima del fragmento residual.
+MIN_ALPHA_RATIO = 0.70  # Umbral de prosa para descartar tablas y fórmulas.
 
 assert set(TOPIC_DIRS) == set(TOPICS), 'TOPIC_DIRS y TOPICS deben tener los mismos temas'
 
 
-# Utils
 def read_jsonl(path):
     with open(path, encoding='utf-8') as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -73,7 +68,7 @@ def chunks_path(chunks_dir, topic):
     return os.path.join(chunks_dir, TOPIC_DIRS[topic] + '.jsonl')
 
 
-# =============================== 1. Candidatos: API de arXiv ===============================
+# Adquisición de candidatos
 API_URL = 'https://export.arxiv.org/api/query'
 HEADERS = {'User-Agent': 'UC3M-NLP-course-project/1.0 (educational use)'}
 NS = {'a': 'http://www.w3.org/2005/Atom', 'x': 'http://arxiv.org/schemas/atom'}
@@ -81,12 +76,13 @@ _last_api_call = [0.0]
 
 
 def api_get(params, retries=6):
-    """GET a la API de arXiv respetando >= API_DELAY s entre peticiones (términos de uso).
-    Ante HTTP 429/5xx espera mucho más (respeta Retry-After si existe) y reintenta."""
+    """Consulta arXiv con intervalo mínimo y reintentos con espera exponencial.
+
+    Respeta Retry-After cuando se expresa en segundos."""
     for attempt in range(retries):
         time.sleep(max(0.0, API_DELAY - (time.time() - _last_api_call[0])))
         _last_api_call[0] = time.time()
-        wait = 15 * 2 ** attempt                                # 15, 30, 60, 120, 240, 480 s
+        wait = 15 * 2 ** attempt
         try:
             r = requests.get(API_URL, params=params, headers=HEADERS, timeout=60)
             if r.status_code == 200:
@@ -108,8 +104,8 @@ def parse_feed(xml_text):
     for e in ET.fromstring(xml_text).findall('a:entry', NS):
         abs_url = e.findtext('a:id', '', NS)
         if '/abs/' not in abs_url:
-            continue                                        # entrada de error de la API
-        arxiv_id, _, version = abs_url.split('/abs/')[-1].rpartition('v')    # '2401.01234v2'
+            continue  # Ignorar entradas sin identificador de artículo.
+        arxiv_id, _, version = abs_url.split('/abs/')[-1].rpartition('v')  # Separar el identificador de su versión: 2401.01234v2.
         primary = e.find('x:primary_category', NS)
         papers.append({
             'doc_id': f'doc_{arxiv_id}',
@@ -137,10 +133,10 @@ def month_windows(start, end):
 def collect_candidates(partial_file):
     """Una petición por tema y mes. Cada respuesta se guarda en `partial_file` para poder reanudar."""
     windows = list(month_windows(DATE_START, DATE_END))
-    per_window = math.ceil(PAPERS_PER_TOPIC * OVERSAMPLE / len(windows))   # candidatos pedidos por tema y mes
+    per_window = math.ceil(PAPERS_PER_TOPIC * OVERSAMPLE / len(windows))
     n_calls = len(TOPICS) * len(windows)
     print(f'{n_calls} peticiones a la API (≈ {n_calls * API_DELAY / 60:.0f} min), {per_window} candidatos por tema y mes')
-    done = {}                                                              # (tema, inicio de ventana) -> papers
+    done = {}  # Clave: (tema, inicio de ventana). Valor: artículos.
     if os.path.exists(partial_file):
         for rec in read_jsonl(partial_file):
             done[(rec['topic'], rec['start'])] = rec['papers']
@@ -153,7 +149,7 @@ def collect_candidates(partial_file):
                           'start': 0, 'max_results': per_window,
                           'sortBy': 'relevance', 'sortOrder': 'descending'}
                 done[(topic, start)] = parse_feed(api_get(params))
-                with open(partial_file, 'a', encoding='utf-8') as f:         # guardar ya: si falla, se reanuda aquí
+                with open(partial_file, 'a', encoding='utf-8') as f:  # Guardar cada respuesta para poder reanudar tras un fallo.
                     f.write(json.dumps({'topic': topic, 'start': start, 'papers': done[(topic, start)]},
                                        ensure_ascii=False) + '\n')
             for p in done[(topic, start)]:
@@ -163,20 +159,20 @@ def collect_candidates(partial_file):
     return rows
 
 
-# =============================== 2. Conversión de PDF a texto ===============================
+# Descarga y extracción
 GCS_URL = 'https://storage.googleapis.com/arxiv-dataset/arxiv/arxiv/pdf/{yymm}/{arxiv_id}v{version}.pdf'
 ARXIV_PDF_URL = 'https://arxiv.org/pdf/{arxiv_id}v{version}'
 _arxiv_lock = threading.Lock()
 _count_lock = threading.Lock()
 _last_arxiv_call = [0.0]
-PDF_SOURCE = Counter()           # de dónde viene cada PDF descargado (informativo)
-FAILED = {}                      # arxiv_id -> motivo del descarte
+PDF_SOURCE = Counter()
+FAILED = {}  # Identificador de arXiv -> motivo del descarte.
 
 
 def _download(url, throttled=False):
     """Bytes de la URL si es un PDF válido y no demasiado grande; si no, None."""
     try:
-        if throttled:                  # arxiv.org: una sola petición cada API_DELAY s
+        if throttled:  # Serializar las descargas de arXiv y respetar API_DELAY.
             with _arxiv_lock:
                 time.sleep(max(0.0, API_DELAY - (time.time() - _last_arxiv_call[0])))
                 r = requests.get(url, headers=HEADERS, timeout=90)
@@ -199,7 +195,7 @@ def fetch_pdf(paper, pdf_dir):
     if os.path.exists(path):
         return path
     data, source = None, None
-    for v in dict.fromkeys([paper['version'], 1]):      # versión que indica la API y, si no está, la v1
+    for v in dict.fromkeys([paper['version'], 1]):  # Intentar la versión solicitada y después la primera versión.
         data = _download(GCS_URL.format(yymm=paper['arxiv_id'][:4], arxiv_id=paper['arxiv_id'], version=v))
         if data:
             source = 'bucket gs://arxiv-dataset'
@@ -236,8 +232,8 @@ def clean_pdf_text(raw):
     text = ARXIV_STAMP.sub(' ', text)
     heads = [m.start() for m in REF_HEADING.finditer(text) if m.start() > 0.4 * len(text)]
     if heads:
-        text = text[:heads[-1]]                          # fuera la bibliografía (y lo que venga después)
-    text = re.sub(r'(\w)-\n(?=[a-z])', r'\1', text)      # rein-\nforcement -> reinforcement
+        text = text[:heads[-1]]
+    text = re.sub(r'(\w)-\n(?=[a-z])', r'\1', text)  # Unir palabras partidas al final de línea.
     text = URL_RE.sub(' ', text)
     text = EMAIL_RE.sub(' ', text)
     return ' '.join(text.split())
@@ -250,7 +246,7 @@ def chunk_text(text, size=CHUNK_WORDS, overlap=CHUNK_OVERLAP, min_words=MIN_CHUN
     chunks = []
     for start in range(0, len(words), step):
         piece = words[start:start + size]
-        if chunks and len(piece) < min_words:           # casi todo es solape con el fragmento anterior
+        if chunks and len(piece) < min_words:
             break
         chunks.append(' '.join(piece))
         if start + size >= len(words):
@@ -262,7 +258,8 @@ WORD_RE = re.compile(r"^\(?[A-Za-z][A-Za-z'\-]*[.,;:!?)]*$")
 
 
 def alpha_ratio(chunk):
-    """Fracción de 'palabras' formadas sólo por letras (con puntuación final): baja en tablas, fórmulas y referencias."""
+    """Fracción de tokens que cumplen WORD_RE: letras, apóstrofos y guiones,
+    con paréntesis y puntuación opcionales."""
     words = chunk.split()
     return sum(bool(WORD_RE.match(w)) for w in words) / max(1, len(words))
 
@@ -284,7 +281,7 @@ def process_paper(paper, pdf_dir, text_dir):
             text = clean_pdf_text(extract_text(pdf_path))
             with open(txt_path, 'w', encoding='utf-8') as f:
                 f.write(text)
-    except Exception as e:                               # PDF corrupto, cifrado...
+    except Exception as e:
         FAILED[paper['arxiv_id']] = f'{type(e).__name__}: {e}'
         return None
     n_words = len(text.split())
@@ -295,7 +292,7 @@ def process_paper(paper, pdf_dir, text_dir):
     return {**paper, 'n_words': n_words, 'n_chunks_ok': n_good}
 
 
-# =============================== 3. Selección de papers ===============================
+# Selección de artículos
 def select_papers(candidates, pdf_dir, text_dir):
     """Por tema (de más a menos específico), candidatos en orden aleatorio hasta reunir PAPERS_PER_TOPIC válidos."""
     claimed, selected = set(), []
@@ -318,7 +315,7 @@ def select_papers(candidates, pdf_dir, text_dir):
     return selected
 
 
-# =============================== 4. Índice de fragmentos ===============================
+# Selección de fragmentos
 def pick_positions(n, k):
     """k posiciones equiespaciadas de range(n) que siempre incluyen la primera."""
     if k >= n:
@@ -327,19 +324,20 @@ def pick_positions(n, k):
 
 
 def build_chunks(docs, text_dir, target, seed):
-    """Fragmenta cada paper y elige `target` fragmentos: 2 o 3 por paper, siempre el primero y el resto
-    repartido a intervalos regulares."""
+    """Distribuye el presupuesto de fragmentos de forma uniforme entre artículos.
+
+    Selecciona posiciones repartidas entre los fragmentos válidos, incluida
+    la primera. Exige que cada artículo cubra el presupuesto asignado."""
     rng = random.Random(seed)
-    per_doc = {}                                  # doc_id -> [(posición en el paper, texto)] de fragmentos válidos
+    per_doc = {}  # Artículo -> pares (posición original, texto) de fragmentos válidos.
     for d in docs:
         with open(os.path.join(text_dir, TOPIC_DIRS[d['topic']], d['arxiv_id'] + '.txt'), encoding='utf-8') as f:
             pieces = chunk_text(f.read())
         per_doc[d['doc_id']] = [(i, c) for i, c in enumerate(pieces) if alpha_ratio(c) >= MIN_ALPHA_RATIO]
 
     base, extra = divmod(target, len(per_doc))
-    bonus = set(rng.sample(list(per_doc), extra))                 # estos papers aportan un fragmento más
+    bonus = set(rng.sample(list(per_doc), extra))  # Repartir el resto entre artículos seleccionados con semilla fija.
     chosen = {d: pick_positions(len(v), base + (d in bonus)) for d, v in per_doc.items()}
-    # Cada paper tiene >= MIN_GOOD_CHUNKS fragmentos válidos, así que siempre se llega exactamente a `target`
     assert sum(len(v) for v in chosen.values()) == target, 'algún paper tiene menos fragmentos que su presupuesto'
 
     topic_of = {d['doc_id']: d['topic'] for d in docs}
@@ -353,9 +351,9 @@ def build_chunks(docs, text_dir, target, seed):
     return rows
 
 
-# ==================================== pipeline ====================================
+# Construcción del corpus
 def build(project_dir='.'):
-    """Ejecuta los pasos que falten y deja corpus.jsonl y data/chunks/<tema>.jsonl en disco."""
+    """Reutiliza los datos disponibles y reconstruye el índice de fragmentos."""
     data_dir = os.path.join(project_dir, 'data')
     pdf_dir, text_dir = os.path.join(data_dir, 'pdf'), os.path.join(data_dir, 'txt')
     chunks_dir = os.path.join(data_dir, 'chunks')
@@ -364,7 +362,6 @@ def build(project_dir='.'):
     os.makedirs(chunks_dir, exist_ok=True)
 
     if os.path.exists(manifest_file):
-        # Corpus ya elegido: sólo hay que asegurarse de tener el texto de sus papers
         print('Reutilizando corpus.jsonl (se descargan los textos que falten)...')
         with ThreadPoolExecutor(PDF_WORKERS) as ex:
             docs = [r for r in tqdm(ex.map(lambda p: process_paper(p, pdf_dir, text_dir), read_jsonl(manifest_file)),
