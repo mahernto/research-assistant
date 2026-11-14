@@ -1,0 +1,28 @@
+# Dependencias de milestone_1_limpio.ipynb y corpus_builder.py (ejecución local)
+# Recomendado: Python 3.11 o 3.12 (gensim/spacy/pymupdf pueden no tener
+# ruedas precompiladas para versiones muy recientes como 3.14).
+#
+# Tras `pip install -r requirements.txt`, instalar el modelo de spaCy:
+#   python -m spacy download en_core_web_sm
+
+# Datos y cálculo
+numpy
+pandas
+scipy
+requests
+tqdm
+
+# Gráficas
+matplotlib
+
+# PDF
+pymupdf
+
+# NLP / recuperación
+spacy
+gensim
+
+# Jupyter
+jupyter
+ipykernel
+ipywidgets
