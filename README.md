@@ -35,7 +35,7 @@ research-assistant/
 ├── MILESTONE_1.md             # resumen de una página del Hito 1                  [git]
 └── data/
     ├── chunks/<tema>.jsonl    # los 10 000 fragmentos indexados                   [git]
-    ├── candidates_queries.jsonl   # las 60 consultas candidatas del LLM           [git]
+    ├── candidate_queries.jsonl   # las 60 consultas candidatas del LLM           [git]
     ├── chunk_lemmas.jsonl         # caché de lemas de spaCy                       [no git]
     ├── candidates.jsonl           # candidatos de la API de arXiv                 [no git]
     ├── pdf/<tema>/<arxiv_id>.pdf  # PDFs descargados                              [no git]
