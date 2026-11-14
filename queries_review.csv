@@ -1,0 +1,61 @@
+qid,topic,query,auto,auto_reasons,judge_match,judge_specific,manual_decision,manual_note,final
+q01,reinforcement_learning,Learning from web search,ok,,5,4,,,ok
+q02,deep_learning,I am looking for papers about using deep learning to automatically evaluate the quality of news articles.,ok,,5,4,,,ok
+q03,deep_learning,I am researching whether deep learning methods are always better than traditional feature engineering in image classification tasks.,ok,,4,3,,,ok
+q04,autonomous_vehicles,Can a self-driving car safely navigate through traffic with different driving styles using machine learning and expert knowledge?,ok,,5,4,,,ok
+q05,nlp,I am looking for ways to improve code generation in large language models using limited training data.,ok,,5,4,,,ok
+q06,neural_networks,I am looking for methods to automatically generate test problems for optimization algorithms using neural networks and large language models.,ok,,5,4,,,ok
+q07,neural_networks,Can a neural network learn to adapt to changing data patterns by simulating brain-like calcium signaling mechanisms?,ok,,5,4,,,ok
+q08,deep_learning,I am looking for deep learning methods that automatically detect brain tumors in MRI scans.,ok,,5,4,,,ok
+q09,autonomous_vehicles,I am researching ways to make self-driving cars more reliable and trustworthy in complex and unpredictable situations.,revisar,casi sin términos del título/resumen,5,4,discard,"el paper es un survey de 4 dominios (power, AV, HPC, redes); la consulta solo menciona coches autónomos y da una idea equivocada del alcance",discard
+q10,deep_learning,I am looking for ways to improve skin lesion classification using deep learning without needing a lot of labeled data.,ok,,5,4,,,ok
+q11,neural_networks,I am looking for papers about adapting neural networks to change their behavior based on the input they receive.,ok,,5,4,,,ok
+q12,reinforcement_learning,I am looking for ways to teach underwater vehicles to perform multiple tasks at once without needing to be retrained.,ok,,5,4,,,ok
+q13,autonomous_vehicles,Is there a paper that discusses the potential security threats of quantum computers to internet security?,revisar,"el LLM no ve que describa el paper (match=1); demasiado genérica (specific=1, mínimo 2)",1,1,discard,"tema distinto: el paper trata comunicación/redes cuánticas, no amenazas de seguridad de ordenadores cuánticos (coincide con match=1)",discard
+q14,autonomous_vehicles,I am looking for ways to improve object detection in self-driving cars by sharing data from different routes.,ok,,5,4,,,ok
+q15,neural_networks,I am looking for efficient designs for neuromorphic neural networks that reduce hardware costs and power consumption.,revisar,copia literal de 4+ palabras,5,4,ok,"buena paráfrasis; el 4-grama compartido es terminología genérica del campo, no identifica el paper de forma trivial",ok
+q16,reinforcement_learning,I am looking for papers about using artificial intelligence to optimize 5G network performance and reduce power consumption.,ok,,4,3,,,ok
+q17,nlp,I am looking for papers about training web agents to navigate complex online tasks through data generation and reinforcement learning.,ok,,5,4,,,ok
+q18,autonomous_vehicles,Is there a standard way to evaluate and compare different methods for communicating between self-driving cars and other road users?,revisar,copia literal de 4+ palabras,5,4,ok,"buena paráfrasis; el 4-grama compartido es una expresión académica genérica (""evaluate and compare different"")",ok
+q19,neural_networks,I am looking for papers about analyzing the structure of neural networks using fractal geometry and self-similarity.,ok,,5,4,,,ok
+q20,deep_learning,I am looking for papers about using deep learning to classify kidney stones from images with limited training data.,ok,,5,4,,,ok
+q21,autonomous_vehicles,Papers about making self-driving cars safer by accounting for uncertainty in their perception of the environment.,ok,,5,4,,,ok
+q22,nlp,I am looking for papers about improving the efficiency of text-to-SQL systems using large language models.,ok,,4,3,,,ok
+q23,nlp,"I am looking for a method to retrieve all relevant information for a complex question at once, rather than in multiple steps.",revisar,longitud (22 palabras; estilo conversational_statement: 6-20),5,5,ok,"excelente paráfrasis (match=5, specific=5); se pasa solo 2 palabras del límite de longitud, aceptable",ok
+q24,deep_learning,I am looking for research on how to automatically adjust settings in deep learning models without needing a lot of training data.,revisar,longitud (22 palabras; estilo conversational_statement: 6-20),4,3,ok,describe bien el tema; el aviso es solo de longitud (22 vs 20 palabras),ok
+q25,deep_learning,Papers about how to prevent deep learning models from being misled by irrelevant information in the training data.,ok,,5,4,,,ok
+q26,deep_learning,I am looking for papers about using deep learning to analyze satellite images and estimate building density and height.,revisar,copia literal de 4+ palabras,5,4,discard,"repite casi literalmente la frase del título (""building density and height"")",discard
+q27,nlp,Papers about improving how spoken language models handle interruptions in conversations without a pause.,ok,,5,4,,,ok
+q28,autonomous_vehicles,LiDAR perception for off-road autonomous driving in construction environments with dust filtering and ground segmentation challenges.,revisar,copia literal de 4+ palabras,5,4,discard,"repite literalmente una frase del título (""off-road autonomous driving"")",discard
+q29,nlp,I am looking for ways to improve the planning of long-horizon tasks in web information seeking with reinforcement learning algorithms.,revisar,copia literal de 4+ palabras,5,4,ok,"buena paráfrasis; el 4-grama compartido es terminología habitual del área (""web information seeking"")",ok
+q30,neural_networks,What is the neural network model that can recall color images from incomplete versions of the images?,ok,,5,4,,,ok
+q31,nlp,I am looking for methods that improve code generation efficiency in large software repositories by retrieving relevant context.,ok,,5,4,,,ok
+q32,reinforcement_learning,I am looking for papers about improving the efficiency and robustness of reinforcement learning in real-world control problems.,revisar,copia literal de 4+ palabras,4,3,ok,"buena descripción; ""real-world control problems"" es término genérico de RL, no exclusivo del paper",ok
+q33,reinforcement_learning,Safe Reinforcement Learning,ok,,5,4,,,ok
+q34,autonomous_vehicles,Papers about how autonomous vehicles can safely navigate when other cars are hidden from view by obstacles.,ok,,5,4,,,ok
+q35,deep_learning,I am looking for methods to train deep learning models on separate datasets without sharing individual patient data.,ok,,5,4,,,ok
+q36,neural_networks,I am looking for methods to make AI control systems more transparent and trustworthy.,ok,,5,4,,,ok
+q37,autonomous_vehicles,I am researching ways to reduce traffic congestion by improving the interaction between human-driven and self-driving vehicles.,ok,,5,4,,,ok
+q38,deep_learning,Can deep learning models be improved with simulated data that mimics human movements for exercise evaluation?,ok,,5,4,,,ok
+q39,reinforcement_learning,What reinforcement learning methods improve safety in tool-augmented language models with diverse agentic risks and tool-grounded hallucinations?,ok,,5,4,,,ok
+q40,reinforcement_learning,I am looking for methods that improve reinforcement learning by using external hints to reduce hallucinations in model responses.,ok,,5,4,,,ok
+q41,nlp,Ordinal supervision in NLP,ok,,5,4,,,ok
+q42,reinforcement_learning,I am looking for methods to safely train reinforcement learning models that avoid rare but catastrophic failures.,ok,,5,4,,,ok
+q43,reinforcement_learning,I am looking for papers about learning to control systems while ensuring they stay safe and within certain limits.,ok,,5,4,,,ok
+q44,neural_networks,Missing data neural networks,ok,,5,4,,,ok
+q45,reinforcement_learning,Papers about evaluating how well different methods help fix problems in reinforcement learning agents.,ok,,5,4,,,ok
+q46,autonomous_vehicles,Papers about developing efficient systems for self-driving cars to switch to different computers while on the move.,ok,,5,4,,,ok
+q47,deep_learning,Papers about using prior knowledge to improve deep learning models for bioprocesses with limited data.,ok,,5,4,,,ok
+q48,deep_learning,Can a deep learning model using a transformer architecture improve cancer diagnosis in histopathological images?,ok,,5,4,,,ok
+q49,reinforcement_learning,Reinforcement learning guidance,ok,,5,4,,,ok
+q50,nlp,Chatbot language adaptation,ok,,5,4,,,ok
+q51,autonomous_vehicles,I am looking for papers about improving vehicle detection and tracking in self-driving cars using spinning radar technology.,revisar,copia literal de 4+ palabras,5,4,discard,"repite literalmente la frase del título (""vehicle detection and tracking"")",discard
+q52,reinforcement_learning,autonomous vehicle team planning,ok,,4,3,,,ok
+q53,autonomous_vehicles,Self-driving car safety improvements,revisar,casi sin términos del título/resumen,4,3,discard,"demasiado genérica: ""self-driving car safety improvements"" valdría para cualquier paper de AV sobre seguridad",discard
+q54,nlp,How do large language models perform on Polish language tasks when they are intentionally corrupted or attacked?,ok,,5,4,,,ok
+q55,neural_networks,"Can neural networks be used to find simple mathematical rules hidden in complex data, and if so, how?",ok,,5,4,,,ok
+q56,neural_networks,neural network information flow,ok,,5,4,,,ok
+q57,neural_networks,Is there a method to train spiking neural networks without gradient-based algorithms by using random features?,ok,,5,4,,,ok
+q58,nlp,I am looking for methods to improve sentiment analysis in text using semi-supervised learning and large language models.,ok,,5,4,,,ok
+q59,neural_networks,"Papers about training neural networks on hardware that mimics the brain, taking into account the limitations of real-world devices.",ok,,5,4,,,ok
+q60,nlp,Can a neural network adapt its own structure to handle different tasks and inputs more efficiently?,ok,,5,4,,,ok

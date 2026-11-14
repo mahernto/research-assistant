@@ -5,7 +5,6 @@ data/txt/
 # Metadatos de la API, caché de lemas y formato anterior de los fragmentos
 data/candidates.jsonl
 data/candidates.jsonl.partial
-data/chunk_lemmas.jsonl
 data/chunks.jsonl
 
 # Versión de prueba (SMOKE_TEST)
