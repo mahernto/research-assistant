@@ -1,14 +1,16 @@
-# Corpus pesado y regenerable (se reconstruye con corpus.jsonl)
+# Datos regenerables con src/corpus_builder.py a partir de data/corpus.jsonl
 data/pdf/
 data/txt/
+# data/chunks/ contiene el índice de fragmentos y la caché de lemas (chunk_lemmas.jsonl)
+data/chunks/
 
-# Metadatos de la API, caché de lemas y formato anterior de los fragmentos
+# Metadatos de la API y formato anterior de los fragmentos
 data/candidates.jsonl
 data/candidates.jsonl.partial
 data/chunks.jsonl
 
-# Versión de prueba (SMOKE_TEST)
-data_smoke/ 
+# Salidas del modo SMOKE_TEST
+data/smoke/
 
 # Borrador generado por el notebook (se entrega MILESTONE_1.md)
 MILESTONE_1_draft.md
@@ -18,6 +20,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .DS_Store
+.venv/
 
 # Secretos: nunca al repositorio
 .env

@@ -1,12 +1,12 @@
 """Construye el índice con todos los fragmentos válidos de cada artículo.
 
 Desde la raíz del proyecto:
-    python corpus_builder.py --check  # comprobar corpus.jsonl y todos los TXT, sin escribir
-    python corpus_builder.py          # reconstruir solo desde data/txt/, sin red
+    python src/corpus_builder.py --check  # comprobar data/corpus.jsonl y todos los TXT, sin escribir
+    python src/corpus_builder.py          # reconstruir solo desde data/txt/, sin red
 
-El modo predeterminado conserva la selección de corpus.jsonl y exige los
+El modo predeterminado conserva la selección de data/corpus.jsonl y exige los
 textos de todos sus artículos. --download habilita explícitamente el flujo
-de adquisición/extracción. El notebook nunca reconstruye automáticamente.
+de adquisición/extracción. El notebook solo llama a build() si falta el índice.
 """
 import os, re, json, math, time, random, calendar, threading, unicodedata
 import argparse, hashlib, shutil, stat, tempfile
@@ -48,6 +48,12 @@ MIN_CHUNK_WORDS = 100  # Longitud mínima del fragmento residual.
 MIN_ALPHA_RATIO = 0.70  # Umbral de prosa para descartar tablas y fórmulas.
 
 assert set(TOPIC_DIRS) == set(TOPICS), 'TOPIC_DIRS y TOPICS deben tener los mismos temas'
+
+# Rutas, relativas a la raíz del proyecto (la carpeta que contiene src/ y data/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MANIFEST_REL = os.path.join('data', 'corpus.jsonl')
+QUERY_FILES_REL = (os.path.join('data', 'queries', 'queries.jsonl'),
+                   os.path.join('data', 'queries', 'candidate_queries.jsonl'))
 
 
 def read_jsonl(path):
@@ -160,9 +166,7 @@ def collect_candidates(partial_file):
 GCS_URL = 'https://storage.googleapis.com/arxiv-dataset/arxiv/arxiv/pdf/{yymm}/{arxiv_id}v{version}.pdf'
 ARXIV_PDF_URL = 'https://arxiv.org/pdf/{arxiv_id}v{version}'
 _arxiv_lock = threading.Lock()
-_count_lock = threading.Lock()
 _last_arxiv_call = [0.0]
-PDF_SOURCE = Counter()
 FAILED = {}  # Identificador de arXiv -> motivo del descarte.
 
 
@@ -191,22 +195,18 @@ def fetch_pdf(paper, pdf_dir):
     path = os.path.join(topic_dir, paper['arxiv_id'] + '.pdf')
     if os.path.exists(path):
         return path
-    data, source = None, None
+    data = None
     for v in dict.fromkeys([paper['version'], 1]):  # Intentar la versión solicitada y después la primera versión.
         data = _download(GCS_URL.format(yymm=paper['arxiv_id'][:4], arxiv_id=paper['arxiv_id'], version=v))
         if data:
-            source = 'bucket gs://arxiv-dataset'
             break
-    if data is None:
+    if data is None:  # Último recurso: arxiv.org, más lento porque se respeta API_DELAY.
         data = _download(ARXIV_PDF_URL.format(arxiv_id=paper['arxiv_id'], version=paper['version']), throttled=True)
-        source = 'arxiv.org (lento)'
     if data is None:
         return None
     with open(path + '.tmp', 'wb') as f:
         f.write(data)
     os.replace(path + '.tmp', path)
-    with _count_lock:
-        PDF_SOURCE[source] += 1
     return path
 
 
@@ -320,7 +320,7 @@ def text_path(text_dir, paper):
 
 def validate_manifest(docs):
     if not docs:
-        raise ValueError('corpus.jsonl está vacío; no se puede reconstruir el índice.')
+        raise ValueError('data/corpus.jsonl está vacío; no se puede reconstruir el índice.')
     ids, paths = set(), set()
     for paper in docs:
         if not all(paper.get(key) for key in ('doc_id', 'arxiv_id', 'topic')):
@@ -329,7 +329,7 @@ def validate_manifest(docs):
             raise ValueError(f"Tema desconocido: {paper['topic']}")
         path = (paper['topic'], paper['arxiv_id'])
         if paper['doc_id'] in ids or path in paths:
-            raise ValueError(f"Artículo duplicado en corpus.jsonl: {paper['doc_id']}")
+            raise ValueError(f"Artículo duplicado en data/corpus.jsonl: {paper['doc_id']}")
         ids.add(paper['doc_id'])
         paths.add(path)
 
@@ -400,7 +400,7 @@ def _query_sources(project_dir, docs):
     """Referencias que necesitan las consultas existentes; nunca se modifican."""
     doc_ids = {paper['doc_id'] for paper in docs}
     required = {}
-    for relative in ('queries.jsonl', os.path.join('data', 'candidate_queries.jsonl')):
+    for relative in QUERY_FILES_REL:
         path = os.path.join(project_dir, relative)
         if not os.path.isfile(path):
             continue
@@ -474,9 +474,12 @@ def _prepare_with_downloads(project_dir, manifest_file, pdf_dir, text_dir):
         with ThreadPoolExecutor(PDF_WORKERS) as executor:
             processed = list(tqdm(executor.map(lambda paper: process_paper(paper, pdf_dir, text_dir), docs),
                                   total=len(docs), desc='corpus'))
-        if any(paper is None for paper in processed):
-            raise ValueError('No se pudieron preparar todos los artículos del manifiesto. '
-                             'La selección y el índice anterior se conservan.')
+        failed = [paper['arxiv_id'] for paper, result in zip(docs, processed) if result is None]
+        if failed:
+            examples = '\n'.join(f'  {arxiv_id}: {FAILED.get(arxiv_id, "motivo desconocido")}'
+                                 for arxiv_id in failed[:10])
+            raise ValueError(f'No se pudieron preparar {len(failed)} de {len(docs)} artículos del manifiesto. '
+                             f'La selección y el índice anterior se conservan.\n{examples}')
         return docs
     candidates_file = os.path.join(data_dir, 'candidates.jsonl')
     if os.path.isfile(candidates_file):
@@ -490,19 +493,19 @@ def _prepare_with_downloads(project_dir, manifest_file, pdf_dir, text_dir):
     return docs
 
 
-def build(project_dir='.', *, allow_download=False, check_only=False):
+def build(project_dir=PROJECT_ROOT, *, allow_download=False, check_only=False):
     """Reconstruye desde todos los TXT; por defecto no realiza ninguna petición de red."""
     if check_only and allow_download:
         raise ValueError('--check es de solo lectura y no se combina con --download.')
     data_dir = os.path.join(project_dir, 'data')
     text_dir, pdf_dir = os.path.join(data_dir, 'txt'), os.path.join(data_dir, 'pdf')
     chunks_dir = os.path.join(data_dir, 'chunks')
-    manifest_file = os.path.join(project_dir, 'corpus.jsonl')
+    manifest_file = os.path.join(project_dir, MANIFEST_REL)
     if allow_download:
         docs = _prepare_with_downloads(project_dir, manifest_file, pdf_dir, text_dir)
     else:
         if not os.path.isfile(manifest_file):
-            raise FileNotFoundError('Falta corpus.jsonl. El modo sin red necesita el manifiesto existente.')
+            raise FileNotFoundError(f'Falta {MANIFEST_REL}. El modo sin red necesita el manifiesto existente.')
         docs = read_jsonl(manifest_file)
     validate_manifest(docs)
     check_texts(docs, text_dir)
@@ -518,7 +521,8 @@ def build(project_dir='.', *, allow_download=False, check_only=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--project-dir', default='.', help='Carpeta que contiene corpus.jsonl y data/.')
+    parser.add_argument('--project-dir', default=PROJECT_ROOT,
+                        help='Raíz del proyecto, con data/corpus.jsonl (por defecto, la carpeta que contiene src/).')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--check', action='store_true', help='Comprobar manifiesto y TXT sin escribir ni descargar.')
     modes.add_argument('--download', action='store_true', help='Permitir explícitamente la adquisición de PDF/textos.')
