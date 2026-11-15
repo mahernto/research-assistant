@@ -4,7 +4,7 @@ Proyecto final de **Procesamiento del Lenguaje Natural** (Máster en IA Aplicada
 
 | Hito | Contenido | Notebook | Estado |
 |---|---|---|---|
-| 1 | Corpus, preprocesado con spaCy, consultas de evaluación y baselines dispersos (TF-IDF, BM25) | `milestone_1_limpio.ipynb` | En curso |
+| 1 | Corpus, preprocesado con spaCy, consultas de evaluación y baselines dispersos (TF-IDF, BM25) | `milestone_1.ipynb` | En curso |
 | 2 | Sistema RAG: recuperación densa + LLM de pesos abiertos, comparado con el Hito 1 | — | Pendiente |
 | 3 | Extensión: modelado de tópicos o LoRA/QLoRA | — | Pendiente |
 
@@ -26,7 +26,7 @@ python3.12 -m venv .venv
 
 ```
 research-assistant/
-├── milestone_1_limpio.ipynb   # notebook del Hito 1
+├── milestone_1.ipynb   # notebook del Hito 1
 ├── corpus_builder.py          # construcción del corpus: arXiv -> PDFs -> texto -> fragmentos
 ├── requirements.txt
 ├── corpus.jsonl               # los 4 000 papers del corpus (metadatos)           [git]
