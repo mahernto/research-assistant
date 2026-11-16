@@ -21,6 +21,7 @@ pymupdf
 # NLP / recuperación
 spacy
 gensim
+bm25s
 
 # Jupyter
 jupyter

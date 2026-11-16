@@ -115,4 +115,4 @@ Con `data/corpus.jsonl` ya presente, el modo por defecto conserva esa selección
 * **Corpus**: 5 temas × 800 papers = 4 000 papers, con una ventana de fechas fija para que sea reproducible.
 * **Unidad de indexación**: fragmentos de 300 palabras; el IDF y la longitud media de TF-IDF y BM25 se calculan sobre los fragmentos.
 * **Evaluación a nivel de documento**: cada paper recibe la puntuación de su mejor fragmento, lo que permite comparar con el RAG del Hito 2.
-* **BM25** propio (Okapi, IDF de Lucene, k1 = 1.5, b = 0.75). Sus parámetros no se ajustan sobre las consultas, porque son el conjunto de test.
+* **BM25** con la librería `bm25s` (variante de Lucene, k1 = 1.5, b = 0.75). Sus parámetros no se ajustan sobre las consultas, porque son el conjunto de test.
