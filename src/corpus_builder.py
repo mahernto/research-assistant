@@ -1,22 +1,20 @@
-"""Construye el corpus de arXiv y su índice de fragmentos.
+"""Construye el índice con todos los fragmentos válidos de cada artículo.
 
-Uso desde la raíz del proyecto:
-    python corpus_builder.py
+Desde la raíz del proyecto:
+    python src/corpus_builder.py --check  # comprobar data/corpus.jsonl y todos los TXT, sin escribir
+    python src/corpus_builder.py          # reconstruir solo desde data/txt/, sin red
 
-Genera corpus.jsonl y data/chunks/<tema>.jsonl. Reutiliza candidatos,
-PDF y textos existentes; build() vuelve a generar los fragmentos.
-Si existe el manifiesto, conserva su selección de artículos y procesa
-los textos disponibles o descarga los que falten.
-
-El notebook evita llamar a build() cuando ya dispone del manifiesto
-y de todos los archivos de fragmentos.
+El modo predeterminado conserva la selección de data/corpus.jsonl y exige los
+textos de todos sus artículos. --download habilita explícitamente el flujo
+de adquisición/extracción. El notebook solo llama a build() si falta el índice.
 """
 import os, re, json, math, time, random, calendar, threading, unicodedata
+import argparse, hashlib, shutil, stat, tempfile
+from contextlib import ExitStack
 import xml.etree.ElementTree as ET
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
 import requests
 from tqdm.auto import tqdm
 
@@ -35,7 +33,6 @@ TOPIC_DIRS = {'autonomous_vehicles': 'av', 'reinforcement_learning': 'rl', 'nlp'
               'neural_networks': 'nn', 'deep_learning': 'dl'}
 
 PAPERS_PER_TOPIC = 800
-TARGET_CHUNKS = 10_000
 DATE_START, DATE_END = '2025-01', '2026-11'  # Ventana de selección; conservar los datos para reproducir la instantánea.
 OVERSAMPLE = 1.5  # Margen para duplicados y documentos descartados.
 API_DELAY = 3.0  # Intervalo mínimo entre peticiones a arXiv, en segundos.
@@ -51,6 +48,12 @@ MIN_CHUNK_WORDS = 100  # Longitud mínima del fragmento residual.
 MIN_ALPHA_RATIO = 0.70  # Umbral de prosa para descartar tablas y fórmulas.
 
 assert set(TOPIC_DIRS) == set(TOPICS), 'TOPIC_DIRS y TOPICS deben tener los mismos temas'
+
+# Rutas, relativas a la raíz del proyecto (la carpeta que contiene src/ y data/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MANIFEST_REL = os.path.join('data', 'corpus.jsonl')
+QUERY_FILES_REL = (os.path.join('data', 'queries', 'queries.jsonl'),
+                   os.path.join('data', 'queries', 'candidate_queries.jsonl'))
 
 
 def read_jsonl(path):
@@ -163,9 +166,7 @@ def collect_candidates(partial_file):
 GCS_URL = 'https://storage.googleapis.com/arxiv-dataset/arxiv/arxiv/pdf/{yymm}/{arxiv_id}v{version}.pdf'
 ARXIV_PDF_URL = 'https://arxiv.org/pdf/{arxiv_id}v{version}'
 _arxiv_lock = threading.Lock()
-_count_lock = threading.Lock()
 _last_arxiv_call = [0.0]
-PDF_SOURCE = Counter()
 FAILED = {}  # Identificador de arXiv -> motivo del descarte.
 
 
@@ -194,22 +195,18 @@ def fetch_pdf(paper, pdf_dir):
     path = os.path.join(topic_dir, paper['arxiv_id'] + '.pdf')
     if os.path.exists(path):
         return path
-    data, source = None, None
+    data = None
     for v in dict.fromkeys([paper['version'], 1]):  # Intentar la versión solicitada y después la primera versión.
         data = _download(GCS_URL.format(yymm=paper['arxiv_id'][:4], arxiv_id=paper['arxiv_id'], version=v))
         if data:
-            source = 'bucket gs://arxiv-dataset'
             break
-    if data is None:
+    if data is None:  # Último recurso: arxiv.org, más lento porque se respeta API_DELAY.
         data = _download(ARXIV_PDF_URL.format(arxiv_id=paper['arxiv_id'], version=paper['version']), throttled=True)
-        source = 'arxiv.org (lento)'
     if data is None:
         return None
     with open(path + '.tmp', 'wb') as f:
         f.write(data)
     os.replace(path + '.tmp', path)
-    with _count_lock:
-        PDF_SOURCE[source] += 1
     return path
 
 
@@ -315,75 +312,226 @@ def select_papers(candidates, pdf_dir, text_dir):
     return selected
 
 
-# Selección de fragmentos
-def pick_positions(n, k):
-    """k posiciones equiespaciadas de range(n) que siempre incluyen la primera."""
-    if k >= n:
-        return list(range(n))
-    return sorted(set(np.linspace(0, n - 1, k + 1)[:-1].round().astype(int).tolist()))
+# Construcción del índice desde los textos seleccionados
+
+def text_path(text_dir, paper):
+    return os.path.join(text_dir, TOPIC_DIRS[paper['topic']], paper['arxiv_id'] + '.txt')
 
 
-def build_chunks(docs, text_dir, target, seed):
-    """Distribuye el presupuesto de fragmentos de forma uniforme entre artículos.
-
-    Selecciona posiciones repartidas entre los fragmentos válidos, incluida
-    la primera. Exige que cada artículo cubra el presupuesto asignado."""
-    rng = random.Random(seed)
-    per_doc = {}  # Artículo -> pares (posición original, texto) de fragmentos válidos.
-    for d in docs:
-        with open(os.path.join(text_dir, TOPIC_DIRS[d['topic']], d['arxiv_id'] + '.txt'), encoding='utf-8') as f:
-            pieces = chunk_text(f.read())
-        per_doc[d['doc_id']] = [(i, c) for i, c in enumerate(pieces) if alpha_ratio(c) >= MIN_ALPHA_RATIO]
-
-    base, extra = divmod(target, len(per_doc))
-    bonus = set(rng.sample(list(per_doc), extra))  # Repartir el resto entre artículos seleccionados con semilla fija.
-    chosen = {d: pick_positions(len(v), base + (d in bonus)) for d, v in per_doc.items()}
-    assert sum(len(v) for v in chosen.values()) == target, 'algún paper tiene menos fragmentos que su presupuesto'
-
-    topic_of = {d['doc_id']: d['topic'] for d in docs}
-    rows = []
-    for doc_id, kept in per_doc.items():
-        for j in chosen[doc_id]:
-            idx, text = kept[j]
-            rows.append({'chunk_id': f'{doc_id}_c{idx:02d}', 'doc_id': doc_id, 'chunk_idx': idx,
-                         'n_chunks_doc': len(kept), 'topic': topic_of[doc_id],
-                         'n_words': len(text.split()), 'text': text})
-    return rows
+def validate_manifest(docs):
+    if not docs:
+        raise ValueError('data/corpus.jsonl está vacío; no se puede reconstruir el índice.')
+    ids, paths = set(), set()
+    for paper in docs:
+        if not all(paper.get(key) for key in ('doc_id', 'arxiv_id', 'topic')):
+            raise ValueError('Cada artículo necesita doc_id, arxiv_id y topic.')
+        if paper['topic'] not in TOPICS:
+            raise ValueError(f"Tema desconocido: {paper['topic']}")
+        path = (paper['topic'], paper['arxiv_id'])
+        if paper['doc_id'] in ids or path in paths:
+            raise ValueError(f"Artículo duplicado en data/corpus.jsonl: {paper['doc_id']}")
+        ids.add(paper['doc_id'])
+        paths.add(path)
 
 
-# Construcción del corpus
-def build(project_dir='.'):
-    """Reutiliza los datos disponibles y reconstruye el índice de fragmentos."""
-    data_dir = os.path.join(project_dir, 'data')
-    pdf_dir, text_dir = os.path.join(data_dir, 'pdf'), os.path.join(data_dir, 'txt')
-    chunks_dir = os.path.join(data_dir, 'chunks')
-    candidates_file = os.path.join(data_dir, 'candidates.jsonl')
-    manifest_file = os.path.join(project_dir, 'corpus.jsonl')
+def check_texts(docs, text_dir):
+    """Comprobación previa de archivos; no descarga, extrae ni escribe nada."""
+    missing, empty = [], []
+    for paper in docs:
+        path = text_path(text_dir, paper)
+        try:
+            info = os.stat(path)
+        except FileNotFoundError:
+            missing.append(path)
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            missing.append(path)
+        elif info.st_size == 0:
+            empty.append(path)
+    if missing or empty:
+        examples = '\n'.join(f'  {path}' for path in (missing + empty)[:5])
+        raise FileNotFoundError(
+            f'Faltan {len(missing)} textos y hay {len(empty)} archivos vacíos. '
+            f'No se ha modificado el índice ni se ha descargado nada.\n{examples}\n'
+            'Coloca todos los TXT en data/txt/<tema>/<arxiv_id>.txt y repite --check.')
+
+
+def build_chunks(docs, text_dir):
+    """Itera sobre todos los fragmentos válidos, sin presupuesto ni muestreo.
+
+    El índice de ventana original se conserva en chunk_idx y chunk_id,
+    incluso cuando se descartan ventanas intermedias. n_chunks_doc cuenta
+    todos los fragmentos válidos de ese artículo.
+    """
+    for paper in docs:
+        path = text_path(text_dir, paper)
+        try:
+            with open(path, encoding='utf-8') as file:
+                text = file.read()
+        except UnicodeError as error:
+            raise ValueError(f'{path}: el texto debe estar codificado en UTF-8.') from error
+        pieces = chunk_text(text)
+        kept = [(i, piece) for i, piece in enumerate(pieces)
+                if alpha_ratio(piece) >= MIN_ALPHA_RATIO]
+        if len(text.split()) < MIN_DOC_WORDS or len(kept) < MIN_GOOD_CHUNKS:
+            raise ValueError(
+                f"{paper['doc_id']}: texto insuficiente ({len(text.split())} palabras, "
+                f'{len(kept)} fragmentos válidos). No se excluye el artículo: '
+                'revisa su TXT antes de reconstruir el índice.')
+        for idx, piece in kept:
+            yield {'chunk_id': f"{paper['doc_id']}_c{idx:02d}",
+                   'doc_id': paper['doc_id'], 'chunk_idx': idx,
+                   'n_chunks_doc': len(kept), 'topic': paper['topic'],
+                   'n_words': len(piece.split()), 'text': piece}
+
+
+def chunk_index_fingerprint(chunks_dir):
+    """Huella de contenido y orden del índice; invalida las cachés de preprocesado."""
+    digest = hashlib.sha256()
+    for topic in TOPICS:
+        digest.update(topic.encode() + b'\0')
+        with open(chunks_path(chunks_dir, topic), 'rb') as file:
+            for block in iter(lambda: file.read(1024 * 1024), b''):
+                digest.update(block)
+    return digest.hexdigest()
+
+
+def _query_sources(project_dir, docs):
+    """Referencias que necesitan las consultas existentes; nunca se modifican."""
+    doc_ids = {paper['doc_id'] for paper in docs}
+    required = {}
+    for relative in QUERY_FILES_REL:
+        path = os.path.join(project_dir, relative)
+        if not os.path.isfile(path):
+            continue
+        for query in read_jsonl(path):
+            if not query.get('relevant_ids') or not set(query['relevant_ids']) <= doc_ids:
+                raise ValueError(f"{relative}: {query.get('qid')} referencia un artículo fuera del corpus.")
+            if query.get('source_chunk'):
+                required.setdefault(query['source_chunk'], set()).update(query['relevant_ids'])
+    return required
+
+
+def _publish_index(staging, chunks_dir):
+    """Publica los cinco archivos completos; revierte reemplazos si falla la operación."""
     os.makedirs(chunks_dir, exist_ok=True)
+    backups = os.path.join(staging, 'previous')
+    os.mkdir(backups)
+    previous, replaced = {}, []
+    for topic in TOPICS:
+        target = chunks_path(chunks_dir, topic)
+        if os.path.isfile(target):
+            backup = chunks_path(backups, topic)
+            shutil.copy2(target, backup)
+            previous[topic] = backup
+    try:
+        for topic in TOPICS:
+            os.replace(chunks_path(staging, topic), chunks_path(chunks_dir, topic))
+            replaced.append(topic)
+    except BaseException:
+        for topic in reversed(replaced):
+            target = chunks_path(chunks_dir, topic)
+            if topic in previous:
+                os.replace(previous[topic], target)
+            else:
+                os.unlink(target)
+        raise
 
-    if os.path.exists(manifest_file):
-        print('Reutilizando corpus.jsonl (se descargan los textos que falten)...')
-        with ThreadPoolExecutor(PDF_WORKERS) as ex:
-            docs = [r for r in tqdm(ex.map(lambda p: process_paper(p, pdf_dir, text_dir), read_jsonl(manifest_file)),
-                                    desc='corpus') if r]
+
+def _write_index(docs, text_dir, chunks_dir, project_dir):
+    required = _query_sources(project_dir, docs)
+    found = set()
+    counts = Counter()
+    # El staging se elimina también si falla un texto o desaparece un fragmento de origen.
+    with tempfile.TemporaryDirectory(prefix='.chunks-build-', dir=os.path.dirname(chunks_dir)) as staging:
+        with ExitStack() as stack:
+            outputs = {topic: stack.enter_context(open(chunks_path(staging, topic), 'w', encoding='utf-8'))
+                       for topic in TOPICS}
+            for row in build_chunks(docs, text_dir):
+                if row['chunk_id'] in required:
+                    if row['doc_id'] not in required[row['chunk_id']]:
+                        raise ValueError(f"Origen de consulta inconsistente: {row['chunk_id']}")
+                    found.add(row['chunk_id'])
+                outputs[row['topic']].write(json.dumps(row, ensure_ascii=False) + '\n')
+                counts[row['topic']] += 1
+        missing_sources = set(required) - found
+        if missing_sources:
+            raise ValueError(
+                f'{len(missing_sources)} fragmentos de origen de consultas ya no existen: '
+                f'{sorted(missing_sources)[:5]}. Revisa la correspondencia de las consultas; '
+                'el índice anterior se conserva.')
+        _publish_index(staging, chunks_dir)
+    return counts
+
+
+def _prepare_with_downloads(project_dir, manifest_file, pdf_dir, text_dir):
+    """Flujo anterior de adquisición, habilitado solo mediante --download."""
+    data_dir = os.path.join(project_dir, 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    if os.path.isfile(manifest_file):
+        docs = read_jsonl(manifest_file)
+        validate_manifest(docs)
+        with ThreadPoolExecutor(PDF_WORKERS) as executor:
+            processed = list(tqdm(executor.map(lambda paper: process_paper(paper, pdf_dir, text_dir), docs),
+                                  total=len(docs), desc='corpus'))
+        failed = [paper['arxiv_id'] for paper, result in zip(docs, processed) if result is None]
+        if failed:
+            examples = '\n'.join(f'  {arxiv_id}: {FAILED.get(arxiv_id, "motivo desconocido")}'
+                                 for arxiv_id in failed[:10])
+            raise ValueError(f'No se pudieron preparar {len(failed)} de {len(docs)} artículos del manifiesto. '
+                             f'La selección y el índice anterior se conservan.\n{examples}')
+        return docs
+    candidates_file = os.path.join(data_dir, 'candidates.jsonl')
+    if os.path.isfile(candidates_file):
+        candidates = read_jsonl(candidates_file)
     else:
-        if os.path.exists(candidates_file):
-            candidates = read_jsonl(candidates_file)
-        else:
-            candidates = collect_candidates(candidates_file + '.partial')
-            write_jsonl(candidates_file, candidates)
-        print('Candidatos por tema:', dict(Counter(c['topic'] for c in candidates)))
-        docs = select_papers(candidates, pdf_dir, text_dir)
-        write_jsonl(manifest_file, docs)
+        candidates = collect_candidates(candidates_file + '.partial')
+        write_jsonl(candidates_file, candidates)
+    docs = select_papers(candidates, pdf_dir, text_dir)
+    validate_manifest(docs)
+    write_jsonl(manifest_file, docs)
+    return docs
 
-    print(f'{len(docs)} papers · PDFs descargados: {dict(PDF_SOURCE) or "(ya estaban en disco)"} · '
-          f'descartados: {len(FAILED)}', Counter(v.split(' (')[0].split(':')[0] for v in FAILED.values()).most_common(5))
 
-    rows = build_chunks(docs, text_dir, TARGET_CHUNKS, SEED + 1)
-    for t in TOPICS:
-        write_jsonl(chunks_path(chunks_dir, t), [r for r in rows if r['topic'] == t])
-    print(f'{len(rows)} fragmentos guardados en {chunks_dir}')
+def build(project_dir=PROJECT_ROOT, *, allow_download=False, check_only=False):
+    """Reconstruye desde todos los TXT; por defecto no realiza ninguna petición de red."""
+    if check_only and allow_download:
+        raise ValueError('--check es de solo lectura y no se combina con --download.')
+    data_dir = os.path.join(project_dir, 'data')
+    text_dir, pdf_dir = os.path.join(data_dir, 'txt'), os.path.join(data_dir, 'pdf')
+    chunks_dir = os.path.join(data_dir, 'chunks')
+    manifest_file = os.path.join(project_dir, MANIFEST_REL)
+    if allow_download:
+        docs = _prepare_with_downloads(project_dir, manifest_file, pdf_dir, text_dir)
+    else:
+        if not os.path.isfile(manifest_file):
+            raise FileNotFoundError(f'Falta {MANIFEST_REL}. El modo sin red necesita el manifiesto existente.')
+        docs = read_jsonl(manifest_file)
+    validate_manifest(docs)
+    check_texts(docs, text_dir)
+    if check_only:
+        print(f'Comprobación correcta: {len(docs)} artículos y todos sus TXT disponibles. '
+              'No se han validado todavía los fragmentos ni se ha escrito ningún archivo.')
+        return None
+    counts = _write_index(docs, text_dir, chunks_dir, project_dir)
+    print(f'{len(docs)} artículos conservados · {sum(counts.values())} fragmentos válidos guardados '
+          f'en {chunks_dir}: {dict(counts)}')
+    return counts
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--project-dir', default=PROJECT_ROOT,
+                        help='Raíz del proyecto, con data/corpus.jsonl (por defecto, la carpeta que contiene src/).')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--check', action='store_true', help='Comprobar manifiesto y TXT sin escribir ni descargar.')
+    modes.add_argument('--download', action='store_true', help='Permitir explícitamente la adquisición de PDF/textos.')
+    args = parser.parse_args(argv)
+    try:
+        build(args.project_dir, allow_download=args.download, check_only=args.check)
+    except (FileNotFoundError, ValueError) as error:
+        parser.exit(2, f'Error: {error}\n')
 
 
 if __name__ == '__main__':
-    build()
+    main()

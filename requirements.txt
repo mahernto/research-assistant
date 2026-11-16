@@ -1,4 +1,4 @@
-# Dependencias de milestone_1_limpio.ipynb y corpus_builder.py (ejecución local)
+# Dependencias de milestone_1.ipynb y corpus_builder.py (ejecución local)
 # Recomendado: Python 3.11 o 3.12 (gensim/spacy/pymupdf pueden no tener
 # ruedas precompiladas para versiones muy recientes como 3.14).
 #
@@ -21,6 +21,7 @@ pymupdf
 # NLP / recuperación
 spacy
 gensim
+bm25s
 
 # Jupyter
 jupyter
