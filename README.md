@@ -1,12 +1,26 @@
 # research-assistant
 
-Proyecto final de **Procesamiento del Lenguaje Natural** (Máster en IA Aplicada, UC3M) · **Aplicación C: sistema de asistencia en investigación académica** sobre papers de arXiv.
+Proyecto final de **Procesamiento del Lenguaje Natural** (Máster en IA Aplicada, UC3M).
+
+**Grupo:** Antonio Bello, Martín Hernández, Iker Lekuona y Eduardo Jorge Sanjurjo
+**Aplicación C1:** Sistema de asistencia en investigación académica sobre papers de arXiv.
 
 | Hito | Contenido | Notebook | Estado |
 |---|---|---|---|
-| 1 | Corpus, preprocesado con spaCy, consultas de evaluación y baselines dispersos (TF-IDF, BM25) | `milestone_1.ipynb` | En curso |
+| 1 | Corpus, preprocesado con spaCy, consultas de evaluación y baselines dispersos (TF-IDF, BM25) | `milestone_1.ipynb` | Hecho |
 | 2 | Sistema RAG: recuperación densa + LLM de pesos abiertos, comparado con el Hito 1 | — | Pendiente |
 | 3 | Extensión: modelado de tópicos o LoRA/QLoRA | — | Pendiente |
+
+## Resultados
+
+54 consultas, 114 494 fragmentos, evaluación a nivel de documento:
+
+| Método | Recall@5 | Recall@10 | MRR |
+|---|---:|---:|---:|
+| TF-IDF + coseno | 0,389 | 0,481 | 0,281 |
+| BM25 | **0,574** | **0,685** | **0,502** |
+
+BM25 supera a TF-IDF en los cinco temas. Detalle, análisis de errores y limitaciones en [MILESTONE_1.md](MILESTONE_1.md).
 
 ## Cómo ejecutarlo
 
@@ -51,7 +65,7 @@ Las consultas guardadas en `data/queries/` se reutilizan, así que no se vuelven
 Solo hace falta un LLM con `REGENERATE_QUERIES = True`, y regenerarlas invalida la revisión manual:
 
 * **Ollama en local** (`LLM_BACKEND = 'ollama'`): la celda de arranque del notebook lo instala, lo arranca y descarga el modelo.
-* **Servidor de la UC3M** (`LLM_BACKEND = 'uc3m'`): la clave se lee de la variable de entorno `UC3M_API_KEY` (o se pide por teclado). **No la subáis a git.**
+* **Servidor de la UC3M** (`LLM_BACKEND = 'uc3m'`): la clave se lee de la variable de entorno `UC3M_API_KEY` (o se pide por teclado). 
 
 ### 5. Google Colab
 
