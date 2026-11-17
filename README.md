@@ -6,6 +6,8 @@ Proyecto final de **Procesamiento del Lenguaje Natural** (Máster en IA Aplicada
 
 **Aplicación C1:** Sistema de asistencia en investigación académica sobre papers de arXiv.
 
+**Repositorio:** [github.com/mahernto/research-assistant](https://github.com/mahernto/research-assistant)
+
 | Hito | Contenido | Notebook | Estado |
 |---|---|---|---|
 | 1 | Corpus, preprocesado con spaCy, consultas de evaluación y baselines dispersos (TF-IDF, BM25) | `milestone_1.ipynb` | Hecho |

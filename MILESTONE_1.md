@@ -6,6 +6,8 @@
 
 **Fecha:** 18 de noviembre de 2026
 
+**Repositorio:** [github.com/mahernto/research-assistant](https://github.com/mahernto/research-assistant)
+
 Para ver el detalle del proyecto (código, celdas y salidas), consulta el notebook `milestone_1.ipynb`. Para ejecutarlo o ver detalles adicionales de la estructura del proyecto, consulta el [README.md](README.md).
 
 ## Qué se ha hecho
