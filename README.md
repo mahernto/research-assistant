@@ -3,6 +3,7 @@
 Proyecto final de **Procesamiento del Lenguaje Natural** (Máster en IA Aplicada, UC3M).
 
 **Grupo:** Antonio Bello, Martín Hernández, Iker Lekuona y Eduardo Jorge Sanjurjo
+
 **Aplicación C1:** Sistema de asistencia en investigación académica sobre papers de arXiv.
 
 | Hito | Contenido | Notebook | Estado |

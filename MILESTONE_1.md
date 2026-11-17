@@ -1,7 +1,9 @@
 # Hito 1: Baseline de recuperación
 
 **Grupo:** Antonio Bello, Martín Hernández, Iker Lekuona y Eduardo Jorge Sanjurjo
+
 **Aplicación C1:** Sistema de asistencia de investigación académica sobre papers de arXiv.
+
 **Fecha:** 18 de noviembre de 2026
 
 Para ver el detalle del proyecto (código, celdas y salidas), consulta el notebook `milestone_1.ipynb`. Para ejecutarlo o ver detalles adicionales de la estructura del proyecto, consulta el [README.md](README.md).
